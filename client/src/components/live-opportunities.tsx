@@ -129,11 +129,11 @@ export function LiveOpportunities({
                       <span className="font-mono text-xs">{opportunity.pairs}</span>
                     </div>
                   </td>
-                  <td className={`py-3 ${opportunity.estimatedProfitEth > 0 ? 'text-accent dark:text-green-400' : 'text-error dark:text-red-400'}`}>
-                    {opportunity.estimatedProfitEth > 0 ? '+' : ''}{opportunity.estimatedProfitEth.toFixed(4)} ETH
+                  <td className={`py-3 ${parseFloat(opportunity.estimatedProfitEth.toString()) > 0 ? 'text-accent dark:text-green-400' : 'text-error dark:text-red-400'}`}>
+                    {parseFloat(opportunity.estimatedProfitEth.toString()) > 0 ? '+' : ''}{parseFloat(opportunity.estimatedProfitEth.toString()).toFixed(4)} ETH
                   </td>
                   <td className="py-3 text-right text-neutral-dark dark:text-slate-400">
-                    ~{opportunity.estimatedGasCostEth.toFixed(4)} ETH
+                    ~{parseFloat(opportunity.estimatedGasCostEth.toString()).toFixed(4)} ETH
                   </td>
                   <td className="py-3 pr-2 text-right">
                     {opportunity.isExecutable ? (

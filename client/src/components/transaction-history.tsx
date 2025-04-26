@@ -101,8 +101,8 @@ export function TransactionHistory({ transactions, isLoading }: TransactionHisto
                   <td className="py-3 text-neutral-dark dark:text-slate-400">
                     {formatTimestamp(tx.timestamp)}
                   </td>
-                  <td className={`py-3 text-right ${tx.profitEth >= 0 ? 'text-accent dark:text-green-400' : 'text-error dark:text-red-400'}`}>
-                    {tx.profitEth >= 0 ? '+' : ''}{tx.profitEth.toFixed(4)} ETH
+                  <td className={`py-3 text-right ${parseFloat(tx.profitEth.toString()) >= 0 ? 'text-accent dark:text-green-400' : 'text-error dark:text-red-400'}`}>
+                    {parseFloat(tx.profitEth.toString()) >= 0 ? '+' : ''}{parseFloat(tx.profitEth.toString()).toFixed(4)} ETH
                   </td>
                   <td className="py-3 pr-2 text-right">
                     <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(tx.status)}`}>

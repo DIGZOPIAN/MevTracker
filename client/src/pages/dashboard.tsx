@@ -86,7 +86,13 @@ export default function Dashboard() {
   const updateBlockchainStatus = async () => {
     try {
       const status = await getBlockchainStatus();
-      await apiRequest('POST', '/api/blockchain-status', status);
+      // Convert numbers to strings for the API
+      const formattedStatus = {
+        pendingTransactions: status.pendingTransactions,
+        gasPrice: status.gasPrice.toString(),
+        networkCongestion: status.networkCongestion
+      };
+      await apiRequest('POST', '/api/blockchain-status', formattedStatus);
       queryClient.invalidateQueries({ queryKey: ['/api/blockchain-status'] });
     } catch (error) {
       console.error('Failed to update blockchain status:', error);
@@ -178,7 +184,7 @@ export default function Dashboard() {
             
             <StatusCard
               title="Success Rate"
-              value={statsQuery.data ? `${statsQuery.data.successRate.toFixed(1)}%` : "--"}
+              value={statsQuery.data ? `${parseFloat(statsQuery.data.successRate).toFixed(1)}%` : "--"}
               change="+1.4% (24h)"
               icon={PieChart}
               isPositive={true}
