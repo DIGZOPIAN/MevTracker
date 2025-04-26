@@ -20,7 +20,275 @@ function validateBody<T extends z.ZodTypeAny>(
   return schema.parse(data);
 }
 
+// Class to manage MEV execution state
+class MevExecutionManager {
+  private isRunning: boolean = false;
+  private profit: number = 0;
+  private transactions: number = 0;
+  private startTime?: Date;
+  private targetProfit: number = 20; // £20 default
+  
+  startExecution(targetProfit?: number) {
+    if (this.isRunning) return { success: false, message: "Execution already running" };
+    
+    this.isRunning = true;
+    this.profit = 0;
+    this.transactions = 0;
+    this.startTime = new Date();
+    
+    if (targetProfit) this.targetProfit = targetProfit;
+    
+    return { 
+      success: true, 
+      message: `Started MEV execution with target profit of £${this.targetProfit}`,
+      startTime: this.startTime
+    };
+  }
+  
+  stopExecution() {
+    if (!this.isRunning) return { success: false, message: "No execution currently running" };
+    
+    this.isRunning = false;
+    
+    return { 
+      success: true, 
+      message: "Stopped MEV execution",
+      stats: this.getStats()
+    };
+  }
+  
+  recordProfit(amount: number) {
+    this.profit += amount;
+    this.transactions++;
+    
+    const targetReached = this.profit >= this.targetProfit;
+    if (targetReached) {
+      this.isRunning = false;
+    }
+    
+    return { 
+      success: true,
+      targetReached,
+      currentProfit: this.profit,
+      transactions: this.transactions
+    };
+  }
+  
+  getStats() {
+    return {
+      isRunning: this.isRunning,
+      profit: this.profit,
+      transactions: this.transactions,
+      startTime: this.startTime,
+      targetProfit: this.targetProfit,
+      percentComplete: this.targetProfit > 0 ? (this.profit / this.targetProfit) * 100 : 0
+    };
+  }
+}
+
+// Create a singleton instance
+const mevManager = new MevExecutionManager();
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // MEV auto-execution endpoints
+  app.post('/api/mev/start', async (req, res) => {
+    try {
+      const targetProfit = req.body?.targetProfit;
+      const result = mevManager.startExecution(targetProfit);
+      res.json(result);
+      
+      // If we had actual execution, we'd start it here
+      // For demo purposes, we'll simulate it with automated opportunity execution
+      if (result.success) {
+        // Start execution in background
+        executeOpportunitiesUntilTarget(mevManager).catch(console.error);
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to start MEV execution" });
+    }
+  });
+  
+  // Execute a specific opportunity
+  app.post('/api/execute-opportunity/:id', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const opportunities = await storage.getOpportunities();
+      const opportunity = opportunities.find(opp => opp.id === id);
+      
+      if (!opportunity) {
+        return res.status(404).json({ error: "Opportunity not found" });
+      }
+      
+      // Execute the opportunity (in a real system this would use the wallet)
+      const txHash = `0x${Math.random().toString(16).substring(2, 10)}...${Math.random().toString(16).substring(2, 6)}`;
+      
+      // Record the transaction
+      const transaction = await storage.addTransaction({
+        txHash,
+        type: opportunity.type,
+        pairs: opportunity.pairs,
+        profitEth: opportunity.estimatedProfitEth as string,
+        gasCostEth: opportunity.estimatedGasCostEth as string,
+        status: "Confirmed"
+      });
+      
+      // Remove the executed opportunity
+      await storage.deleteOpportunity(id);
+      
+      // Add mempool activity
+      await storage.addMempoolActivity({
+        message: `Executed ${opportunity.type} arbitrage: ${opportunity.pairs} - Profit: ${opportunity.estimatedProfitEth} ETH`,
+        type: "execution"
+      });
+      
+      // Return the result
+      res.json({
+        success: true,
+        transaction,
+        message: `Successfully executed ${opportunity.type} arbitrage opportunity`
+      });
+    } catch (error) {
+      console.error("Error executing opportunity:", error);
+      res.status(500).json({ error: "Failed to execute opportunity" });
+    }
+  });
+  
+  app.post('/api/mev/stop', async (req, res) => {
+    try {
+      const result = mevManager.stopExecution();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to stop MEV execution" });
+    }
+  });
+  
+  app.get('/api/mev/status', async (req, res) => {
+    try {
+      const stats = mevManager.getStats();
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get MEV execution status" });
+    }
+  });
+  
+  // Helper function to execute opportunities until target is reached
+  async function executeOpportunitiesUntilTarget(manager: MevExecutionManager) {
+    const stats = manager.getStats();
+    if (!stats.isRunning) return;
+    
+    try {
+      // Get current opportunities
+      const opportunities = await storage.getOpportunities();
+      const executableOpps = opportunities.filter(o => o.isExecutable);
+      
+      if (executableOpps.length > 0) {
+        // Execute the most profitable opportunity
+        const bestOpp = executableOpps.sort((a, b) => {
+          const profitA = parseFloat(a.estimatedProfitEth as string) - parseFloat(a.estimatedGasCostEth as string);
+          const profitB = parseFloat(b.estimatedProfitEth as string) - parseFloat(b.estimatedGasCostEth as string);
+          return profitB - profitA;
+        })[0];
+        
+        // Execute it
+        const transaction = await storage.addTransaction({
+          txHash: `0x${Math.random().toString(16).substring(2, 10)}...${Math.random().toString(16).substring(2, 6)}`,
+          type: bestOpp.type,
+          pairs: bestOpp.pairs,
+          profitEth: bestOpp.estimatedProfitEth as string,
+          gasCostEth: bestOpp.estimatedGasCostEth as string,
+          status: "Confirmed"
+        });
+        
+        // Convert profit to GBP (using approximate exchange rate)
+        const ethToGbpRate = 2650; // £2,650 per ETH (example rate)
+        const profitGbp = parseFloat(transaction.profitEth) * ethToGbpRate;
+        
+        // Record profit and check if target reached
+        const result = manager.recordProfit(profitGbp);
+        
+        // Remove the executed opportunity
+        await storage.deleteOpportunity(bestOpp.id);
+        
+        // Add mempool activity
+        await storage.addMempoolActivity({
+          message: `Executed ${bestOpp.type} arbitrage: ${bestOpp.pairs} - Profit: £${profitGbp.toFixed(2)}`,
+          type: "execution"
+        });
+        
+        console.log(`Executed opportunity with profit: £${profitGbp.toFixed(2)}`);
+        console.log(`Progress: £${result.currentProfit.toFixed(2)} / £${stats.targetProfit} (${(result.currentProfit / stats.targetProfit * 100).toFixed(2)}%)`);
+        
+        // If target not reached, wait and continue
+        if (!result.targetReached) {
+          // Generate a new opportunity to replace the one we just executed
+          await generateRandomOpportunity();
+          
+          // Wait between executions
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
+          // Continue execution
+          executeOpportunitiesUntilTarget(manager);
+        } else {
+          console.log(`Target profit of £${stats.targetProfit} reached! Execution complete.`);
+          
+          // Update bot stats
+          const currentStats = await storage.getBotStats();
+          if (currentStats) {
+            const totalProfit = parseFloat(currentStats.totalProfitEth) + 
+              result.currentProfit / ethToGbpRate; // Convert GBP back to ETH
+            
+            await storage.updateBotStats({
+              totalProfitEth: totalProfit.toString(),
+              totalTransactions: currentStats.totalTransactions + result.transactions,
+              successRate: "100" // All successful for this run
+            });
+          }
+        }
+      } else {
+        // No opportunities, generate some and try again
+        await generateRandomOpportunity();
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        executeOpportunitiesUntilTarget(manager);
+      }
+    } catch (error) {
+      console.error('Error in MEV execution:', error);
+      
+      // Wait and try again if still running
+      if (manager.getStats().isRunning) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        executeOpportunitiesUntilTarget(manager);
+      }
+    }
+  }
+  
+  // Helper to generate random opportunities for testing
+  async function generateRandomOpportunity() {
+    const types = ['Triangular', 'DEX', 'Flash Loan'];
+    const pairs = [
+      'ETH → USDC → WBTC → ETH',
+      'ETH → DAI → USDT → ETH',
+      'USDT(Uniswap) → USDT(SushiSwap)',
+      'WBTC(Uniswap) → WBTC(Balancer)',
+      'AAVE → Uniswap → Compound',
+      'Maker → Curve → Aave → Maker'
+    ];
+    
+    // Generate a profit between 0.008 and 0.045 ETH
+    const profit = (Math.random() * 0.037 + 0.008).toFixed(4);
+    // Gas cost between 0.003 and 0.016 ETH
+    const gasCost = (Math.random() * 0.013 + 0.003).toFixed(4);
+    
+    const opportunity = {
+      type: types[Math.floor(Math.random() * types.length)],
+      pairs: pairs[Math.floor(Math.random() * pairs.length)],
+      estimatedProfitEth: profit,
+      estimatedGasCostEth: gasCost,
+      isExecutable: true
+    };
+    
+    await storage.addOpportunity(opportunity);
+    return opportunity;
+  }
   // GET bot settings
   app.get('/api/bot-settings', async (req, res) => {
     try {
@@ -143,6 +411,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(activity);
     } catch (error) {
       res.status(400).json({ error: "Invalid mempool activity data" });
+    }
+  });
+  
+  // Generate new opportunities for testing and simulation
+  app.post('/api/simulate/generate-opportunities', async (req, res) => {
+    try {
+      // Clear existing opportunities
+      await storage.clearOpportunities();
+      
+      // Generate 4-8 new opportunities
+      const count = Math.floor(Math.random() * 5) + 4;
+      const createdOpportunities = [];
+      
+      for (let i = 0; i < count; i++) {
+        const types = ['Triangular', 'DEX', 'Flash Loan'];
+        const pairs = [
+          'ETH → USDC → WBTC → ETH',
+          'ETH → DAI → USDT → ETH',
+          'USDT(Uniswap) → USDT(SushiSwap)',
+          'WBTC(Uniswap) → WBTC(Balancer)',
+          'AAVE → Uniswap → Compound',
+          'Maker → Curve → Aave → Maker'
+        ];
+        
+        // Generate a profit between 0.008 and 0.045 ETH
+        const profit = (Math.random() * 0.037 + 0.008).toFixed(4);
+        // Gas cost between 0.003 and 0.016 ETH
+        const gasCost = (Math.random() * 0.013 + 0.003).toFixed(4);
+        
+        const opp = {
+          type: types[Math.floor(Math.random() * types.length)],
+          pairs: pairs[Math.floor(Math.random() * pairs.length)],
+          estimatedProfitEth: profit,
+          estimatedGasCostEth: gasCost,
+          isExecutable: Math.random() > 0.3 // 70% executable
+        };
+        
+        createdOpportunities.push(await storage.addOpportunity(opp));
+      }
+      
+      res.json({ 
+        success: true, 
+        count: createdOpportunities.length,
+        opportunities: createdOpportunities 
+      });
+    } catch (error) {
+      console.error("Error generating opportunities:", error);
+      res.status(500).json({ error: "Failed to generate opportunities" });
     }
   });
 

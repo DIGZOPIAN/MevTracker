@@ -7,6 +7,7 @@ import LiveOpportunities from "@/components/live-opportunities";
 import TransactionHistory from "@/components/transaction-history";
 import MempoolMonitor from "@/components/mempool-monitor";
 import BotSettings from "@/components/bot-settings";
+import { MevAutomation } from "@/components/mev-automation";
 import { getBlockchainStatus } from "@/lib/ethereum";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -211,6 +212,8 @@ export default function Dashboard() {
             
             {/* Right Column */}
             <div>
+              <MevAutomation targetProfit={20} />
+              
               <MempoolMonitor
                 pendingTx={blockchainStatusQuery.data?.pendingTransactions || 0}
                 gasPrice={blockchainStatusQuery.data?.gasPrice || 0}
