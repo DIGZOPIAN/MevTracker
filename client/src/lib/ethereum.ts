@@ -40,11 +40,11 @@ export async function initializeProvider() {
       return { provider, web3 };
     }
     
-    // Otherwise use a public provider for read-only access
-    provider = new ethers.JsonRpcProvider('https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161');
-    web3 = new Web3('https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161'); // Infura public endpoint
+    // Use provided Infura API key for blockchain access
+    provider = new ethers.JsonRpcProvider('https://mainnet.infura.io/v3/1b38140cc9754636843f811026e9ebb8');
+    web3 = new Web3('https://mainnet.infura.io/v3/1b38140cc9754636843f811026e9ebb8'); // Infura endpoint with API key
     
-    console.log('Using public provider for read-only access');
+    console.log('Using Infura provider for blockchain access');
     return { provider, web3 };
   } catch (error) {
     console.error('Failed to initialize provider:', error);
