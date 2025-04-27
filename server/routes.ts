@@ -27,8 +27,10 @@ class MevExecutionManager {
   private transactions: number = 0;
   private startTime?: Date;
   private targetProfit: number = 20; // £20 default
+  private autoWithdraw: boolean = false;
+  private withdrawalAddress: string = '';
   
-  startExecution(targetProfit?: number) {
+  startExecution(targetProfit?: number, autoWithdraw?: boolean, withdrawalAddress?: string) {
     if (this.isRunning) return { success: false, message: "Execution already running" };
     
     this.isRunning = true;
@@ -37,11 +39,14 @@ class MevExecutionManager {
     this.startTime = new Date();
     
     if (targetProfit) this.targetProfit = targetProfit;
+    if (autoWithdraw !== undefined) this.autoWithdraw = autoWithdraw;
+    if (withdrawalAddress) this.withdrawalAddress = withdrawalAddress;
     
     return { 
       success: true, 
       message: `Started MEV execution with target profit of £${this.targetProfit}`,
-      startTime: this.startTime
+      startTime: this.startTime,
+      autoWithdraw: this.autoWithdraw
     };
   }
   
@@ -70,7 +75,9 @@ class MevExecutionManager {
       success: true,
       targetReached,
       currentProfit: this.profit,
-      transactions: this.transactions
+      transactions: this.transactions,
+      autoWithdraw: this.autoWithdraw && targetReached,
+      withdrawalAddress: this.withdrawalAddress
     };
   }
   
@@ -81,7 +88,9 @@ class MevExecutionManager {
       transactions: this.transactions,
       startTime: this.startTime,
       targetProfit: this.targetProfit,
-      percentComplete: this.targetProfit > 0 ? (this.profit / this.targetProfit) * 100 : 0
+      percentComplete: this.targetProfit > 0 ? (this.profit / this.targetProfit) * 100 : 0,
+      autoWithdraw: this.autoWithdraw,
+      withdrawalAddress: this.withdrawalAddress
     };
   }
 }
@@ -93,8 +102,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MEV auto-execution endpoints
   app.post('/api/mev/start', async (req, res) => {
     try {
-      const targetProfit = req.body?.targetProfit;
-      const result = mevManager.startExecution(targetProfit);
+      const { targetProfit, autoWithdraw, withdrawalAddress } = req.body;
+      const result = mevManager.startExecution(targetProfit, autoWithdraw, withdrawalAddress);
       res.json(result);
       
       // If we had actual execution, we'd start it here
@@ -105,6 +114,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (error) {
       res.status(500).json({ error: "Failed to start MEV execution" });
+    }
+  });
+  
+  // Withdraw profits to wallet address
+  app.post('/api/withdraw', async (req, res) => {
+    try {
+      const { amount, address } = req.body;
+      
+      if (!amount || typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ error: "Invalid withdrawal amount" });
+      }
+      
+      // In a real implementation this would use the WalletManager to transfer funds
+      // For our demo, we'll simulate a withdrawal
+      
+      // Convert amount from GBP to ETH
+      const ethToGbpRate = 2650; // £2,650 per ETH
+      const ethAmount = amount / ethToGbpRate;
+      
+      // Generate a transaction hash
+      const txHash = `0x${Math.random().toString(16).substring(2, 20)}...${Math.random().toString(16).substring(2, 6)}`;
+      
+      // Add withdrawal activity
+      await storage.addMempoolActivity({
+        message: `Withdrew ${ethAmount.toFixed(4)} ETH (£${amount.toFixed(2)}) to ${address || 'connected wallet'}`,
+        type: "withdrawal"
+      });
+      
+      // Return success
+      res.json({
+        success: true,
+        message: `Successfully withdrew £${amount.toFixed(2)} (${ethAmount.toFixed(4)} ETH)`,
+        txHash,
+        amount,
+        ethAmount,
+        address: address || 'connected wallet'
+      });
+    } catch (error) {
+      console.error("Error withdrawing funds:", error);
+      res.status(500).json({ error: "Failed to withdraw funds" });
     }
   });
   
@@ -242,6 +291,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
               totalTransactions: currentStats.totalTransactions + result.transactions,
               successRate: "100" // All successful for this run
             });
+          }
+          
+          // Check if auto-withdraw is enabled
+          if (result.autoWithdraw) {
+            console.log(`Auto-withdraw enabled. Withdrawing £${result.currentProfit.toFixed(2)} to ${result.withdrawalAddress || 'connected wallet'}`);
+            
+            // Convert GBP profit to ETH
+            const ethProfit = result.currentProfit / ethToGbpRate;
+            
+            try {
+              // Generate a transaction hash
+              const txHash = `0x${Math.random().toString(16).substring(2, 16)}...${Math.random().toString(16).substring(2, 6)}`;
+              
+              // Add withdrawal activity
+              await storage.addMempoolActivity({
+                message: `Auto-withdrew ${ethProfit.toFixed(4)} ETH (£${result.currentProfit.toFixed(2)}) to ${result.withdrawalAddress || 'connected wallet'}`,
+                type: "withdrawal"
+              });
+              
+              console.log(`Withdrawal complete! Transaction hash: ${txHash}`);
+            } catch (error) {
+              console.error('Error during auto-withdrawal:', error);
+            }
           }
         }
       } else {

@@ -6,22 +6,31 @@ import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { PlayCircle, StopCircle, RefreshCw, BanknoteIcon, Clock } from "lucide-react";
+import { PlayCircle, StopCircle, RefreshCw, BanknoteIcon, Clock, Wallet, Settings } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface MevAutomationProps {
   targetProfit?: number;
 }
 
-export function MevAutomation({ targetProfit = 20 }: MevAutomationProps) {
+export function MevAutomation({ targetProfit = 1000 }: MevAutomationProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [userTargetProfit, setUserTargetProfit] = useState(targetProfit);
+  const [autoWithdraw, setAutoWithdraw] = useState(true);
+  const [withdrawalAddress, setWithdrawalAddress] = useState('');
   const [status, setStatus] = useState<any>({
     isRunning: false,
     profit: 0,
     transactions: 0,
     startTime: null,
     targetProfit: targetProfit,
-    percentComplete: 0
+    percentComplete: 0,
+    autoWithdraw: true,
+    withdrawalAddress: ''
   });
   
   // Fetch status when component mounts
@@ -51,7 +60,12 @@ export function MevAutomation({ targetProfit = 20 }: MevAutomationProps) {
   const startExecution = async () => {
     setIsLoading(true);
     try {
-      const result = await apiRequest('POST', '/api/mev/start', { targetProfit });
+      const result = await apiRequest('POST', '/api/mev/start', { 
+        targetProfit: userTargetProfit,
+        autoWithdraw,
+        withdrawalAddress: withdrawalAddress || undefined
+      });
+      
       if (result && result.success) {
         toast({
           title: "Automated Execution Started",
@@ -61,7 +75,9 @@ export function MevAutomation({ targetProfit = 20 }: MevAutomationProps) {
           ...status,
           isRunning: true,
           startTime: result.startTime,
-          targetProfit
+          targetProfit: userTargetProfit,
+          autoWithdraw,
+          withdrawalAddress
         });
         
         // Schedule immediate status update
@@ -109,6 +125,36 @@ export function MevAutomation({ targetProfit = 20 }: MevAutomationProps) {
     }
   };
   
+  const withdrawProfits = async () => {
+    if (status.profit <= 0) return;
+    
+    setIsLoading(true);
+    try {
+      const result = await apiRequest('POST', '/api/withdraw', {
+        amount: status.profit,
+        address: withdrawalAddress || undefined
+      });
+      
+      if (result && result.success) {
+        toast({
+          title: "Withdrawal Completed",
+          description: result.message,
+        });
+        
+        // Refresh activity data
+        queryClient.invalidateQueries({ queryKey: ['/api/mempool-activity'] });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to withdraw profits",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   // Format elapsed time
   const formatElapsedTime = (startTime: string) => {
     if (!startTime) return "0:00";
@@ -127,15 +173,76 @@ export function MevAutomation({ targetProfit = 20 }: MevAutomationProps) {
     <Card className="mb-6">
       <CardHeader className="pb-3">
         <CardTitle className="text-xl flex items-center justify-between">
-          MEV Automation
-          <Badge 
-            variant={status.isRunning ? "default" : "outline"}
-            className={status.isRunning ? "bg-green-500 hover:bg-green-600" : ""}>
-            {status.isRunning ? "Running" : "Idle"}
-          </Badge>
+          <div className="flex items-center">
+            MEV Automation
+            <Badge 
+              variant={status.isRunning ? "default" : "outline"}
+              className={`ml-2 ${status.isRunning ? "bg-green-500 hover:bg-green-600" : ""}`}>
+              {status.isRunning ? "Running" : "Idle"}
+            </Badge>
+          </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80">
+              <div className="grid gap-4">
+                <div className="space-y-2">
+                  <h4 className="font-medium leading-none">Automation Settings</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Configure your MEV bot execution parameters
+                  </p>
+                </div>
+                <div className="grid gap-2">
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <Label htmlFor="target-profit" className="text-right">
+                      Target Profit (£)
+                    </Label>
+                    <Input
+                      id="target-profit"
+                      type="number"
+                      className="col-span-2 h-8"
+                      value={userTargetProfit}
+                      onChange={(e) => setUserTargetProfit(Number(e.target.value))}
+                      min="1"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <Label htmlFor="auto-withdraw" className="text-right">
+                      Auto-withdraw
+                    </Label>
+                    <div className="col-span-2 flex items-center space-x-2">
+                      <Switch
+                        id="auto-withdraw"
+                        checked={autoWithdraw}
+                        onCheckedChange={setAutoWithdraw}
+                      />
+                      <Label htmlFor="auto-withdraw" className="text-sm">
+                        {autoWithdraw ? "Enabled" : "Disabled"}
+                      </Label>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <Label htmlFor="withdrawal-address" className="text-right">
+                      Wallet Address
+                    </Label>
+                    <Input
+                      id="withdrawal-address"
+                      className="col-span-2 h-8"
+                      placeholder="0x..."
+                      value={withdrawalAddress}
+                      onChange={(e) => setWithdrawalAddress(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </CardTitle>
         <CardDescription>
-          Automated MEV arbitrage execution
+          Automated MEV arbitrage execution with profit targeting and auto-withdrawal
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -188,7 +295,7 @@ export function MevAutomation({ targetProfit = 20 }: MevAutomationProps) {
           </div>
         </div>
       </CardContent>
-      <CardFooter>
+      <CardFooter className="flex flex-col space-y-2">
         <div className="flex space-x-2 w-full">
           {status.isRunning ? (
             <Button 
@@ -218,6 +325,28 @@ export function MevAutomation({ targetProfit = 20 }: MevAutomationProps) {
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
+        </div>
+        
+        <Button 
+          variant="secondary" 
+          onClick={withdrawProfits} 
+          disabled={isLoading || status.profit <= 0}
+          className="w-full"
+        >
+          <Wallet className="mr-2 h-4 w-4" />
+          Withdraw Profits (£{status.profit.toFixed(2)})
+        </Button>
+        
+        <div className="flex justify-between text-xs text-muted-foreground w-full px-1">
+          <div className="flex items-center">
+            <span className="mr-1">Auto-withdraw:</span>
+            <span className={autoWithdraw ? "text-green-500 font-medium" : "text-slate-400"}>
+              {autoWithdraw ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+          <div>
+            <span className="mr-1">Target: £{userTargetProfit}</span>
+          </div>
         </div>
       </CardFooter>
     </Card>
