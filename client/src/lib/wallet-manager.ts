@@ -123,14 +123,28 @@ let walletManagerInstance: WalletManager | null = null;
 
 export function initWalletManager() {
   const infuraApiKey = process.env.INFURA_API_KEY || '';
+  const privateKey = process.env.ETHEREUM_PRIVATE_KEY || '';
   
   if (!infuraApiKey) {
     console.error('Cannot initialize WalletManager: missing Infura API key');
     return null;
   }
   
+  console.log('Initializing Wallet Manager with Infura API credentials');
+  
   if (!walletManagerInstance) {
     walletManagerInstance = new WalletManager(infuraApiKey);
+    
+    // Initialize the wallet with the private key if available
+    if (privateKey) {
+      walletManagerInstance.initializeWallet(privateKey)
+        .then(walletInfo => {
+          console.log('Wallet initialized successfully with address:', walletInfo.address);
+        })
+        .catch(error => {
+          console.error('Failed to initialize wallet with provided private key:', error);
+        });
+    }
   }
   
   return walletManagerInstance;

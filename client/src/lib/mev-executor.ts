@@ -265,6 +265,8 @@ export function initMevExecutor() {
     return null;
   }
   
+  console.log('Initializing MEV Executor with valid private key and Infura API credentials');
+  
   if (!mevExecutorInstance) {
     mevExecutorInstance = new MevExecutor(privateKey, infuraApiKey);
   }
